@@ -6,17 +6,20 @@
   <title>Game Hub</title>
   <style>
     body {
-      background-color: #1a1a1a;
-      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #1e1e1e;
+      font-family: 'Segoe UI', sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 40px;
+      min-height: 100vh;
     }
 
     .title {
       display: flex;
-      margin-bottom: 40px;
+      margin-top: 40px;
+      margin-bottom: 60px;
     }
 
     .title .game {
@@ -24,8 +27,9 @@
       color: black;
       font-size: 48px;
       font-weight: bold;
-      padding: 10px 20px;
-      border-radius: 8px 0 0 8px;
+      padding: 12px 24px;
+      border-top-left-radius: 10px;
+      border-bottom-left-radius: 10px;
     }
 
     .title .hub {
@@ -33,21 +37,30 @@
       color: white;
       font-size: 48px;
       font-weight: bold;
-      padding: 10px 20px;
-      border-radius: 0 8px 8px 0;
+      padding: 12px 24px;
+      border-top-right-radius: 10px;
+      border-bottom-right-radius: 10px;
+    }
+
+    .button-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      max-width: 400px;
+      padding: 0 20px;
     }
 
     .btn {
-      width: 300px;
       padding: 20px;
-      margin: 15px 0;
       font-size: 20px;
       background-color: #0077cc;
       color: white;
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
       cursor: pointer;
       transition: background-color 0.3s ease;
+      width: 100%;
     }
 
     .btn:hover {
@@ -61,12 +74,14 @@
     <div class="hub">Hub</div>
   </div>
 
-  <button class="btn" onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">
-    Casino
-  </button>
+  <div class="button-container">
+    <button class="btn" onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">
+      Casino
+    </button>
 
-  <button class="btn" onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">
-    Escape from Epstine
-  </button>
+    <button class="btn" onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">
+      Escape from Epstine
+    </button>
+  </div>
 </body>
 </html>

@@ -3,24 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Button Link Demo</title>
+  <title>Game Hub</title>
   <style>
     body {
-      background-color: #f0f0f0;
+      background-color: #1a1a1a;
       font-family: sans-serif;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
-      height: 100vh;
+      padding: 40px;
+    }
+
+    .title {
+      display: flex;
+      margin-bottom: 40px;
+    }
+
+    .title .game {
+      background-color: orange;
+      color: black;
+      font-size: 48px;
+      font-weight: bold;
+      padding: 10px 20px;
+      border-radius: 8px 0 0 8px;
+    }
+
+    .title .hub {
+      background-color: black;
+      color: white;
+      font-size: 48px;
+      font-weight: bold;
+      padding: 10px 20px;
+      border-radius: 0 8px 8px 0;
     }
 
     .btn {
-      padding: 12px 24px;
-      font-size: 16px;
+      width: 300px;
+      padding: 20px;
+      margin: 15px 0;
+      font-size: 20px;
       background-color: #0077cc;
       color: white;
       border: none;
-      border-radius: 6px;
+      border-radius: 10px;
       cursor: pointer;
       transition: background-color 0.3s ease;
     }
@@ -31,10 +56,17 @@
   </style>
 </head>
 <body>
+  <div class="title">
+    <div class="game">Game</div>
+    <div class="hub">Hub</div>
+  </div>
+
   <button class="btn" onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">
-    casino
+    Casino
+  </button>
+
   <button class="btn" onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">
-    escape from epstine
+    Escape from Epstine
   </button>
 </body>
 </html>

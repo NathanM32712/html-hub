@@ -37,29 +37,45 @@
       margin: 0 10px;
     }
 
-    .button-container {
+    .preview-grid {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      gap: 24px;
-      max-width: 800px;
+      gap: 40px;
       padding: 0 20px;
+      max-width: 1200px;
     }
 
-    .btn {
-      padding: 24px;
-      font-size: 22px;
+    .game-preview {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      background-color: #1e1e1e;
+      padding: 20px;
+      border-radius: 12px;
+      border: 2px solid blue;
+    }
+
+    .game-preview iframe {
+      width: 320px;
+      height: 200px;
+      border: none;
+      border-radius: 8px;
+    }
+
+    .game-preview button {
+      padding: 20px 32px;
+      font-size: 24px;
       background-color: black;
       color: blue;
       border: 2px solid blue;
       border-radius: 10px;
       cursor: pointer;
       transition: background-color 0.3s ease, color 0.3s ease;
-      width: 200px;
-      text-align: center;
     }
 
-    .btn:hover {
+    .game-preview button:hover {
       background-color: blue;
       color: black;
     }
@@ -71,13 +87,21 @@
     <div class="hub">Hub</div>
   </div>
 
-  <div class="button-container">
-    <button class="btn" onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">Casino</button>
-    <button class="btn" onclick="window.open('https://nathanm32712.github.io/school-clock/', '_blank')">Clock</button>
-    <button class="btn" onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">Tower Defense</button>
-    <button class="btn">Game 4</button>
-    <button class="btn">Game 5</button>
-    <button class="btn">Game 6</button>
+  <div class="preview-grid">
+    <div class="game-preview">
+      <iframe src="https://nathanm32712.github.io/nathan-s-riskless-casino/" loading="lazy"></iframe>
+      <button onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">Open Casino</button>
+    </div>
+
+    <div class="game-preview">
+      <iframe src="https://nathanm32712.github.io/school-clock/" loading="lazy"></iframe>
+      <button onclick="window.open('https://nathanm32712.github.io/school-clock/', '_blank')">Open Clock</button>
+    </div>
+
+    <div class="game-preview">
+      <iframe src="https://nathanm32712.github.io/html-keeper/" loading="lazy"></iframe>
+      <button onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">Open Tower Defense</button>
+    </div>
   </div>
 </body>
 </html>

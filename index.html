@@ -39,10 +39,10 @@
 
     .button-container {
       display: flex;
-      flex-direction: column;
+      flex-wrap: wrap;
+      justify-content: center;
       gap: 24px;
-      width: 100%;
-      max-width: 400px;
+      max-width: 800px;
       padding: 0 20px;
     }
 
@@ -55,7 +55,8 @@
       border-radius: 10px;
       cursor: pointer;
       transition: background-color 0.3s ease, color 0.3s ease;
-      width: 100%;
+      width: 200px;
+      text-align: center;
     }
 
     .btn:hover {
@@ -71,17 +72,12 @@
   </div>
 
   <div class="button-container">
-    <button class="btn" onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">
-      Casino
-    </button>
-
-    <button class="btn" onclick="window.open('https://nathanm32712.github.io/school-clock/', '_blank')">
-      Clock
-    </button>
-
-    <button class="btn" onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">
-      Tower Defense
-    </button>
+    <button class="btn" onclick="window.open('https://nathanm32712.github.io/nathan-s-riskless-casino/', '_blank')">Casino</button>
+    <button class="btn" onclick="window.open('https://nathanm32712.github.io/school-clock/', '_blank')">Clock</button>
+    <button class="btn" onclick="window.open('https://nathanm32712.github.io/html-keeper/', '_blank')">Tower Defense</button>
+    <button class="btn">Game 4</button>
+    <button class="btn">Game 5</button>
+    <button class="btn">Game 6</button>
   </div>
 </body>
 </html>

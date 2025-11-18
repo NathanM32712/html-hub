@@ -23,25 +23,25 @@
 
     .title {
       display: flex;
-      margin-top: 60px;
+      align-items: center;
+      margin-top: 40px;
       margin-bottom: 20px;
       background-color: blue;
       color: white;
-      font-size: 64px;
+      font-size: 48px;
       font-weight: bold;
       padding: 20px 40px;
       border-radius: 16px;
     }
 
+    .title img {
+      height: 48px;
+      margin-right: 20px;
+    }
+
     .title .game,
     .title .hub {
       margin: 0 10px;
-    }
-
-    .online-count {
-      color: white;
-      font-size: 24px;
-      margin-bottom: 40px;
     }
 
     .preview-grid {
@@ -92,11 +92,10 @@
 </head>
 <body>
   <div class="title">
+    <img src="icon.png" alt="LaunchDeck Icon" />
     <div class="game">Launch</div>
     <div class="hub">Deck</div>
   </div>
-
-  <div class="online-count" id="onlineCount">Online users: ...</div>
 
   <div class="preview-grid">
     <div class="game-preview">
@@ -119,24 +118,5 @@
       <button onclick="window.open('https://example.com', '_blank')">Open Game 4</button>
     </div>
   </div>
-
-  <script>
-    const ws = new WebSocket("ws://localhost:3000");
-
-    ws.onopen = () => {
-      const account = JSON.parse(localStorage.getItem("localaccount"));
-      if (account?.displayname) {
-        ws.send(JSON.stringify({ type: "login", username: account.displayname }));
-      }
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "count") {
-        document.getElementById("onlineCount").innerText =
-          `Online users: ${data.count}`;
-      }
-    };
-  </script>
 </body>
 </html>

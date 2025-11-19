@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Laser Zones — No Corner Text</title>
+  <link rel="icon" type="image/png" href="icon.png" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg1:#020204; --bg2:#071018;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg1),var(--bg2) 60%);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,Helvetica;}
+    canvas{display:block;width:100vw;height:100vh;cursor:crosshair;image-rendering:optimizeQuality;}
+  </style>
+</head>
+<body>
+  <a href="../Launch-Deck.html" style="position: fixed; top: 12px; left: 12px; z-index: 100;">
+    <img src="../icon.png" alt="" style="height: 60px; background: black; border-radius: 4px;">
+  </a>
+<canvas id="game"></canvas>
+<script>
+/*
+ Laser Zones — No corner text
+ - All HUD/hint DOM elements removed
+ - No text drawn in corners
+ - Game logic unchanged (moving lasers, passable by thickness < 10px, add/remove, high score saved)
+*/
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: true });
+
+function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener('resize', resize);
+resize();
+
+let mouse = { x: canvas.width/2, y: canvas.height/2 };
+let alive = true;
+let startTime = performance.now();
+let deathState = { active:false, time:0, scoreStr:'0', newHigh:false };
+
+const SPEED_RAMP_DURATION = 90;
+const START_MULT = 0.08;
+const END_MULT = 0.9;
+
+const MAX_THICKNESS = 18;
+const MIN_SAFE_AREA = 900;
+const TINY_AREA = 150;
+
+// passable threshold (10px)
+const PASSABLE_THRESHOLD = 10;
+
+let lockedKey = null;
+let lockedPoly = null;
+let lockedActive = false;
+let prevMouseKey = null;
+let pulseStart = performance.now();
+
+// grace window after laser add/remove or passable transitions
+const regionChangeGraceMs = 800;
+let regionChangeGraceUntil = 0;
+
+// random add/remove settings
+const MIN_LASERS = 2;
+const MAX_LASERS = 8;
+const CHANGE_INTERVAL_MS = 3500;
+const ADD_PROB = 0.45;
+const CHANGE_FLASH_MS = 700;
+let lastChangeCheck = performance.now();
+let changeFlashUntil = 0;
+let changeFlashText = '';
+
+// high score
+const HS_KEY = 'laser_high_score_ms';
+let highScoreMs = loadHighScore(); // null or number
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - r.left;
+  mouse.y = e.clientY - r.top;
+});
+canvas.addEventListener('click', () => { if (!alive) restart(); });
+
+/* Laser factory */
+function makeLaser(){
+  const cx = Math.random()*canvas.width;
+  const cy = Math.random()*canvas.height;
+  const speed = 0.5 + Math.random()*1.1;
+  const angle = Math.random() * Math.PI * 2;
+  const baseAngVel = (Math.random()*0.04 + 0.002) * (Math.random()<0.5?-1:1);
+  const initialThickness = Math.min(MAX_THICKNESS, 5 + Math.random()*7);
+  return {
+    cx, cy,
+    baseVx: Math.cos(angle) * speed,
+    baseVy: Math.sin(angle) * speed,
+    angle,
+    baseAngVel,
+    phase: Math.random(),
+    phaseSpeed: 0.0009 + Math.random()*0.0025,
+    thicknessBase: initialThickness,
+    state: 'pink',
+    nx:0, ny:0,
+    wanderTimer: Math.random()*2.0,
+    wasPassable: false
+  };
+}
+function makeLasers(n=4){
+  const arr = [];
+  for (let i=0;i<n;i++) arr.push(makeLaser());
+  return arr;
+}
+let lasers = makeLasers(4);
+
+/* Helpers */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function nowMs(){ return performance.now(); }
+
+/* draw beam with depth; passable visual when passable */
+function drawBeam(cx, cy, ux, uy, color, thickness, passable){
+  const L = Math.max(canvas.width, canvas.height) * 2;
+  const x1 = cx - ux * L, y1 = cy - uy * L;
+  const x2 = cx + ux * L, y2 = cy + uy * L;
+
+  if (passable){
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, thickness * 1.2);
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = Math.min(80, thickness * 3);
+    ctx.globalAlpha = 0.08;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = Math.max(0.4, thickness * 0.08);
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1.0;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(2, thickness * 2.8);
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = Math.min(120, thickness * 6);
+    ctx.globalAlpha = 0.18;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1.5, thickness * 1.4);
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = Math.min(80, thickness * 4);
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255,255,255,0.98)';
+    ctx.lineWidth = Math.max(0.8, thickness * 0.36);
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1.0;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // bloom at origin
+  const bloomRadius = Math.max(8, thickness * (passable ? 3.5 : 6));
+  const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, bloomRadius);
+  let tint = '255,160,200';
+  try {
+    const m = color.match(/rgba?\(([^)]+)\)/);
+    if (m) {
+      const parts = m[1].split(',').slice(0,3).map(s=>s.trim());
+      if (parts.length===3) tint = parts.join(',');
+    }
+  } catch(e){}
+  rg.addColorStop(0.0, 'rgba(255,255,255,' + (passable ? '0.85' : '0.95') + ')');
+  rg.addColorStop(0.12, `rgba(${tint},${passable ? 0.28 : 0.55})`);
+  rg.addColorStop(0.35, `rgba(${tint},${passable ? 0.08 : 0.18})`);
+  rg.addColorStop(1.0, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rg;
+  ctx.beginPath(); ctx.arc(cx, cy, bloomRadius, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+/* signed distance */
+function signedDist(cx, cy, nx, ny, px, py){
+  return ((px - cx) * nx + (py - cy) * ny);
+}
+
+/* region key: lasers with thickness < PASSABLE_THRESHOLD are treated as passable (ignored for TOUCH and treated as '+') */
+function regionKeyForPoint(lasersArr, x, y){
+  for (let L of lasersArr){
+    const isPassable = (L.thicknessBase < PASSABLE_THRESHOLD);
+    if (!isPassable && Math.abs(signedDist(L.cx, L.cy, L.nx, L.ny, x, y)) <= L.thicknessBase/2) return 'TOUCH';
+  }
+  let key = '';
+  for (let L of lasersArr){
+    const isPassable = (L.thicknessBase < PASSABLE_THRESHOLD);
+    if (isPassable){
+      key += '+';
+    } else {
+      key += signedDist(L.cx, L.cy, L.nx, L.ny, x, y) >= 0 ? '+' : '-';
+    }
+  }
+  return key;
+}
+
+/* polygon helpers */
+function clipPolygonByLine(poly, line, keepPositive){
+  const out = []; const eps = 1e-9;
+  for (let i = 0; i < poly.length; i++){
+    const a = poly[i], b = poly[(i+1)%poly.length];
+    const da = ((a.x - line.cx) * line.nx + (a.y - line.cy) * line.ny);
+    const db = ((b.x - line.cx) * line.nx + (b.y - line.cy) * line.ny);
+    const aIn = keepPositive ? da >= -eps : da <= eps;
+    const bIn = keepPositive ? db >= -eps : db <= eps;
+    if (aIn) out.push(a);
+    if (aIn ^ bIn){
+      const denom = (da - db);
+      if (Math.abs(denom) > 1e-12){
+        const u = da / (da - db);
+        const ix = a.x + (b.x - a.x) * u;
+        const iy = a.y + (b.y - a.y) * u;
+        out.push({ x: ix, y: iy });
+      }
+    }
+  }
+  return out;
+}
+function polygonForKey(lasersArr, key){
+  let poly = [{x:0,y:0},{x:canvas.width,y:0},{x:canvas.width,y:canvas.height},{x:0,y:canvas.height}];
+  for (let i=0;i<lasersArr.length;i++){
+    const L = lasersArr[i];
+    const keepPos = key[i] === '+';
+    poly = clipPolygonByLine(poly, L, keepPos);
+    if (poly.length === 0) break;
+  }
+  return poly;
+}
+function polygonArea(poly){
+  if (!poly || poly.length < 3) return 0;
+  let a = 0;
+  for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+    a += (poly[j].x * poly[i].y - poly[i].x * poly[j].y);
+  }
+  return Math.abs(a) * 0.5;
+}
+function centroid(poly){
+  let x=0,y=0,a=0;
+  for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const p = poly[i], q = poly[j];
+    const f = (q.x*p.y - p.x*q.y);
+    a += f;
+    x += (q.x + p.x) * f;
+    y += (q.y + p.y) * f;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-9) return { x: poly[0].x, y: poly[0].y };
+  return { x: x/(6*a), y: y/(6*a) };
+}
+
+/* speed multiplier */
+function getSpeedMultiplier(){
+  const elapsed = (nowMs() - startTime) / 1000;
+  const t = Math.min(1, elapsed / SPEED_RAMP_DURATION);
+  const smooth = t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t;
+  return START_MULT + smooth * (END_MULT - START_MULT);
+}
+
+/* tiny-region reaction */
+function reactToTinyRegions(){
+  const cols = 64, rows = 40;
+  const groups = new Map();
+  for (let r=0;r<rows;r++){
+    for (let c=0;c<cols;c++){
+      const x = (c+0.5)*canvas.width/cols;
+      const y = (r+0.5)*canvas.height/rows;
+      const k = regionKeyForPoint(lasers, x, y);
+      if (k === 'TOUCH') continue;
+      if (!groups.has(k)) groups.set(k, { sx:0, sy:0, n:0 });
+      const g = groups.get(k); g.sx += x; g.sy += y; g.n++;
+    }
+  }
+  const labels = [];
+  for (let [k,g] of groups.entries()){
+    if (g.n === 0) continue;
+    labels.push({ key:k, cx: g.sx/g.n, cy: g.sy/g.n });
+  }
+
+  for (let it of labels){
+    const poly = polygonForKey(lasers, it.key);
+    if (!poly || poly.length < 3) continue;
+    const area = polygonArea(poly);
+    if (area < MIN_SAFE_AREA){
+      const c = centroid(poly);
+      const contributors = [];
+      for (let i=0;i<lasers.length;i++){
+        const L = lasers[i];
+        const sd = signedDist(L.cx, L.cy, L.nx, L.ny, c.x, c.y);
+        if (Math.abs(sd) <= Math.max(12, L.thicknessBase * 1.5)) contributors.push(i);
+      }
+      if (contributors.length === 0) continue;
+      for (let idx of contributors){
+        const L = lasers[idx];
+        const rx = c.x - L.cx, ry = c.y - L.cy;
+        const d = Math.hypot(rx, ry) + 1e-6;
+        const push = Math.min(2.2, (MIN_SAFE_AREA - area) / MIN_SAFE_AREA * 1.8 + 0.2);
+        L.baseVx -= (rx/d) * push * 0.9;
+        L.baseVy -= (ry/d) * push * 0.9;
+        const angleToCentroid = Math.atan2(ry, rx);
+        const diff = ((angleToCentroid - L.angle + Math.PI) % (2*Math.PI)) - Math.PI;
+        L.baseAngVel += (diff > 0 ? -1 : 1) * (0.03 + Math.random()*0.04);
+        const vmax = 5.0;
+        const vmag = Math.hypot(L.baseVx, L.baseVy);
+        if (vmag > vmax){ L.baseVx = (L.baseVx/vmag)*vmax; L.baseVy = (L.baseVy/vmag)*vmax; }
+      }
+      if (area < TINY_AREA){
+        for (let idx of contributors){
+          const neighbors = [idx, (idx-1+lasers.length)%lasers.length, (idx+1)%lasers.length];
+          for (let j of neighbors){
+            lasers[j].baseAngVel *= -1;
+            lasers[j].baseVx *= 0.9;
+            lasers[j].baseVy *= 0.9;
+          }
+        }
+      }
+    }
+  }
+}
+
+/* random add/remove with recalibration */
+function maybeChangeLaserSet(){
+  const now = nowMs();
+  if (now - lastChangeCheck < CHANGE_INTERVAL_MS) return;
+  lastChangeCheck = now;
+  if (Math.random() < 0.72) return;
+  const doAdd = Math.random() < ADD_PROB;
+  if (doAdd && lasers.length < MAX_LASERS){
+    const L = makeLaser();
+    lasers.push(L);
+    changeFlashText = 'Laser added';
+    changeFlashUntil = now + CHANGE_FLASH_MS;
+    prevMouseKey = safeRegionKeyAtMouse() || regionKeyForPoint(lasers, mouse.x, mouse.y);
+    regionChangeGraceUntil = now + regionChangeGraceMs;
+  } else if (!doAdd && lasers.length > MIN_LASERS){
+    const idx = Math.floor(Math.random() * lasers.length);
+    lasers.splice(idx,1);
+    changeFlashText = 'Laser removed';
+    changeFlashUntil = now + CHANGE_FLASH_MS;
+    prevMouseKey = safeRegionKeyAtMouse() || regionKeyForPoint(lasers, mouse.x, mouse.y);
+    regionChangeGraceUntil = now + regionChangeGraceMs;
+  }
+}
+
+/* safe region sampling near mouse */
+function safeRegionKeyAtMouse(){
+  const centerKey = regionKeyForPoint(lasers, mouse.x, mouse.y);
+  if (centerKey !== 'TOUCH') return centerKey;
+  const radii = [12, 24, 40, 60, 90];
+  const samplesPerRing = 18;
+  for (let r of radii){
+    for (let i=0;i<samplesPerRing;i++){
+      const a = (i / samplesPerRing) * Math.PI * 2;
+      const sx = mouse.x + Math.cos(a) * r;
+      const sy = mouse.y + Math.sin(a) * r;
+      if (sx < 0 || sx > canvas.width || sy < 0 || sy > canvas.height) continue;
+      const k = regionKeyForPoint(lasers, sx, sy);
+      if (k !== 'TOUCH') return k;
+    }
+  }
+  return null;
+}
+
+/* time formatting */
+function formatTimeConcat(elapsedMs){
+  const seconds = Math.floor(elapsedMs / 1000);
+  const ms = elapsedMs % 1000;
+  const msPadded = String(ms).padStart(3,'0');
+  return String(seconds) + msPadded;
+}
+
+/* high score persistence */
+function loadHighScore(){
+  try {
+    const v = localStorage.getItem(HS_KEY);
+    if (!v) return null;
+    const n = parseInt(v,10);
+    return Number.isFinite(n) ? n : null;
+  } catch(e){ return null; }
+}
+function saveHighScore(ms){
+  try { localStorage.setItem(HS_KEY, String(ms)); highScoreMs = ms; } catch(e){}
+}
+
+/* death & high score */
+function triggerDeath(x,y){
+  if (!alive) return;
+  deathState.active = true;
+  deathState.time = nowMs();
+  const elapsedMs = Math.max(0, Math.floor(deathState.time - startTime));
+  deathState.scoreStr = formatTimeConcat(elapsedMs);
+  if (highScoreMs === null || elapsedMs > highScoreMs){
+    saveHighScore(elapsedMs);
+    deathState.newHigh = true;
+  } else {
+    deathState.newHigh = false;
+  }
+  alive = false;
+}
+function renderDeath(){
+  if (!deathState.active) return;
+  const now = nowMs();
+  ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.restore();
+  ctx.save(); ctx.fillStyle = 'white'; ctx.textAlign='center';
+  ctx.font = 'bold 56px sans-serif'; ctx.fillText('YOU DIED', canvas.width/2, canvas.height/2 - 10);
+  ctx.font = '20px sans-serif'; ctx.fillText('Time: ' + deathState.scoreStr, canvas.width/2, canvas.height/2 + 30);
+  if (deathState.newHigh){
+    ctx.font = '18px sans-serif'; ctx.fillStyle = '#ffd86b'; ctx.fillText('New High Score!', canvas.width/2, canvas.height/2 + 64);
+  } else if (highScoreMs !== null){
+    ctx.font = '16px sans-serif'; ctx.fillStyle = 'white'; ctx.fillText('High: ' + formatTimeConcat(highScoreMs), canvas.width/2, canvas.height/2 + 64);
+  }
+  ctx.font = '16px sans-serif'; ctx.fillStyle = 'white'; ctx.fillText('Click to restart', canvas.width/2, canvas.height/2 + 104);
+  ctx.restore();
+}
+
+/* main loop */
+let last = nowMs();
+function loop(){
+  const now = nowMs();
+  const dt = (now - last) / 1000;
+  last = now;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const mult = getSpeedMultiplier();
+
+  // update normals
+  for (let L of lasers){
+    const ux = Math.cos(L.angle), uy = Math.sin(L.angle);
+    L.nx = -uy; L.ny = ux;
+  }
+
+  // inter-laser avoidance
+  for (let i=0;i<lasers.length;i++){
+    for (let j=i+1;j<lasers.length;j++){
+      const A = lasers[i], B = lasers[j];
+      const dAng = Math.abs((A.angle - B.angle + Math.PI) % (2*Math.PI) - Math.PI);
+      const ANG_TH = 0.18;
+      if (dAng < ANG_TH){
+        const dist = Math.abs(signedDist(A.cx, A.cy, A.nx, A.ny, B.cx, B.cy));
+        const TH = Math.max(24, (A.thicknessBase + B.thicknessBase) * 0.9);
+        if (dist < TH){
+          const rx = B.cx - A.cx, ry = B.cy - A.cy;
+          const rlen = Math.hypot(rx, ry) + 1e-6;
+          const push = (TH - dist) * 0.12;
+          const ax = (rx / rlen) * push;
+          const ay = (ry / rlen) * push;
+          A.baseVx -= ax; A.baseVy -= ay;
+          B.baseVx += ax; B.baseVy += ay;
+          A.baseAngVel *= 0.92; B.baseAngVel *= 0.92;
+        }
+      }
+    }
+  }
+
+  // tiny-region reaction
+  reactToTinyRegions();
+
+  // maybe add/remove lasers
+  maybeChangeLaserSet();
+
+  // update lasers: movement, thickness-based passable detection, draw
+  for (let L of lasers){
+    // wandering
+    L.wanderTimer -= dt;
+    if (L.wanderTimer <= 0){
+      L.wanderTimer = 0.6 + Math.random()*1.6;
+      const wobble = (Math.random()*2-1) * 0.6;
+      const ang = Math.atan2(L.baseVy, L.baseVx) + wobble;
+      const speed = Math.hypot(L.baseVx, L.baseVy);
+      const newSpeed = clamp(speed * (0.9 + Math.random()*0.3), 0.18, 3.2);
+      L.baseVx = Math.cos(ang) * newSpeed;
+      L.baseVy = Math.sin(ang) * newSpeed;
+      L.baseAngVel += (Math.random()*2-1) * 0.02;
+    }
+
+    // movement & rotation
+    L.cx += L.baseVx * mult * dt * 60;
+    L.cy += L.baseVy * mult * dt * 60;
+    L.angle += L.baseAngVel * mult * (0.9 + Math.random()*0.4);
+
+    // bounce
+    const margin = 160;
+    if (L.cx < -margin) { L.cx = -margin; L.baseVx *= -0.9; L.baseAngVel *= -1; }
+    if (L.cx > canvas.width + margin) { L.cx = canvas.width + margin; L.baseVx *= -0.9; L.baseAngVel *= -1; }
+    if (L.cy < -margin) { L.cy = -margin; L.baseVy *= -0.9; L.baseAngVel *= -1; }
+    if (L.cy > canvas.height + margin) { L.cy = canvas.height + margin; L.baseVy *= -0.9; L.baseAngVel *= -1; }
+
+    // phase/state and thickness oscillation
+    L.phase += L.phaseSpeed * (1 + Math.hypot(L.baseVx, L.baseVy) * 0.02);
+    if (L.phase >= 1) L.phase -= Math.floor(L.phase);
+    L.state = (L.phase < 0.45) ? 'pink' : (L.phase < 0.85 ? 'growing' : 'red');
+
+    const newThickness = Math.max(1.0, L.thicknessBase + Math.cos(L.phase * Math.PI * 2) * (L.thicknessBase * 0.18));
+    L.thicknessBase = Math.min(MAX_THICKNESS, newThickness);
+
+    // passable by thickness
+    const isPassable = (L.thicknessBase < PASSABLE_THRESHOLD);
+
+    // detect transition and recalibrate
+    if (!L.wasPassable && isPassable){
+      prevMouseKey = safeRegionKeyAtMouse() || regionKeyForPoint(lasers, mouse.x, mouse.y);
+      regionChangeGraceUntil = nowMs() + regionChangeGraceMs;
+      changeFlashText = 'Laser passable';
+      changeFlashUntil = nowMs() + CHANGE_FLASH_MS;
+    } else if (L.wasPassable && !isPassable){
+      prevMouseKey = safeRegionKeyAtMouse() || regionKeyForPoint(lasers, mouse.x, mouse.y);
+      regionChangeGraceUntil = nowMs() + regionChangeGraceMs;
+      changeFlashText = 'Laser solid';
+      changeFlashUntil = nowMs() + CHANGE_FLASH_MS;
+    }
+    L.wasPassable = isPassable;
+
+    // update normal
+    const ux = Math.cos(L.angle), uy = Math.sin(L.angle);
+    L.nx = -uy; L.ny = ux;
+
+    // draw beam
+    const color = L.state === 'red' ? 'rgba(255,80,80,0.95)' : (L.state === 'growing' ? 'rgba(255,170,80,0.95)' : 'rgba(255,120,220,0.95)');
+    drawBeam(L.cx, L.cy, ux, uy, color, L.thicknessBase, isPassable);
+
+    // center orb
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath(); ctx.arc(L.cx, L.cy, Math.max(1.0, L.thicknessBase*0.16), 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // compute region under mouse
+  const mouseKey = regionKeyForPoint(lasers, mouse.x, mouse.y);
+
+  // region-change death check
+  const nowTime = nowMs();
+  if (prevMouseKey === null){
+    prevMouseKey = mouseKey;
+  } else {
+    if (nowTime < regionChangeGraceUntil){
+      prevMouseKey = mouseKey;
+    } else {
+      if (mouseKey !== prevMouseKey && prevMouseKey !== 'TOUCH' && mouseKey !== 'TOUCH'){
+        triggerDeath(mouse.x, mouse.y);
+      }
+    }
+  }
+
+  // death by touching red beam (unless passable)
+  for (let L of lasers){
+    const nx = -Math.sin(L.angle), ny = Math.cos(L.angle);
+    const isPassable = (L.thicknessBase < PASSABLE_THRESHOLD);
+    if (!isPassable && L.state === 'red' && Math.abs(signedDist(L.cx, L.cy, nx, ny, mouse.x, mouse.y)) <= L.thicknessBase / 2){
+      triggerDeath(mouse.x, mouse.y);
+    }
+  }
+
+  // all-red lock logic
+  const allRed = lasers.length > 0 && lasers.every(l => l.state === 'red');
+  if (allRed && !lockedKey && alive){
+    const k = regionKeyForPoint(lasers, mouse.x, mouse.y);
+    if (k === 'TOUCH' || mouse.x < 0 || mouse.x > canvas.width || mouse.y < 0 || mouse.y > canvas.height){
+      triggerDeath(mouse.x, mouse.y);
+    } else {
+      lockedKey = k;
+      lockedPoly = polygonForKey(lasers, lockedKey);
+      lockedActive = true;
+      pulseStart = nowMs();
+    }
+  }
+
+  // locked region checks
+  if (lockedActive && alive){
+    if (mouse.x < 0 || mouse.x > canvas.width || mouse.y < 0 || mouse.y > canvas.height){
+      triggerDeath(mouse.x, mouse.y);
+    }
+    for (let L of lasers){
+      const nx = -Math.sin(L.angle), ny = Math.cos(L.angle);
+      const isPassable = (L.thicknessBase < PASSABLE_THRESHOLD);
+      if (!isPassable && L.state === 'red' && Math.abs(signedDist(L.cx, L.cy, nx, ny, mouse.x, mouse.y)) <= L.thicknessBase / 2){
+        triggerDeath(mouse.x, mouse.y);
+      }
+    }
+    if (lockedPoly && !pointInPolygon({x:mouse.x,y:mouse.y}, lockedPoly)){
+      triggerDeath(mouse.x, mouse.y);
+    }
+  }
+
+  // (No HUD or corner text drawn)
+
+  if (!alive) renderDeath();
+  if (alive) requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* point-in-polygon */
+function pointInPolygon(pt, poly){
+  if (!poly || poly.length === 0) return false;
+  let inside = false;
+  for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    const intersect = ((yi > pt.y) !== (yj > pt.y)) &&
+      (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi + 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/* restart */
+function restart(){
+  lasers = makeLasers(4);
+  alive = true;
+  startTime = nowMs();
+  deathState.active = false;
+  deathState.scoreStr = '0';
+  deathState.newHigh = false;
+  lockedKey = null;
+  lockedPoly = null;
+  lockedActive = false;
+  prevMouseKey = null;
+  pulseStart = nowMs();
+  lastChangeCheck = nowMs();
+  regionChangeGraceUntil = 0;
+  changeFlashUntil = 0;
+  requestAnimationFrame(loop);
+}
+
+/* clear high score helper (press H) */
+addEventListener('keydown', (e) => {
+  if (e.key === 'h' || e.key === 'H') {
+    try { localStorage.removeItem(HS_KEY); highScoreMs = null; } catch(e){}
+  }
+});
+</script>
+</body>
+</html>
